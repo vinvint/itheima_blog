@@ -16,8 +16,9 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
-urlpatterns = (
+urlpatterns = [
     path('admin/', admin.site.urls),
     # include参数中有一个元组urlconf_module,app_name
     path('', include(('users.urls', 'users'), namespace='users')),
-)
+    path('', include(('home.urls', 'home'), namespace='home')),
+]
