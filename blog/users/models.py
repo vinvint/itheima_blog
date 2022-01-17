@@ -11,6 +11,8 @@ class User(AbstractUser):
     avatar = models.ImageField(upload_to='avatar/%Y%m%d/', blank=True)
     # 简介信息
     user_desc = models.CharField(max_length=200, blank=True)
+    # 修改（登录等）认证字段为手机号（默认为username）
+    USERNAME_FIELD = 'mobile'
 
     class Meta:
         db_table = 'tb_users' # 设置表名

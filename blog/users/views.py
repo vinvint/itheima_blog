@@ -1,6 +1,7 @@
 from random import randint
 
-from django.contrib.auth import login
+import django_redis
+from django.contrib.auth import login, authenticate, logout
 from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.views import View
@@ -170,3 +171,141 @@ class SmsCodeView(View):
         CCP().send_template_sms(mobile, [sms_code,5], 1)
         # 6.返回响应
         return JsonResponse({'code':RETCODE.OK, 'errmsg':'短信发送成功'})
+
+
+class LoginView(View):
+    def get(self,request):
+
+        return render(request, 'login.html')
+
+    def post(self,request):
+        '''
+        1.接收参数
+        2.参数验证
+            2.1验证手机号是否符合规则
+            2.2验证密码是否符合规则
+        3.用户认证登录
+        4.状态保持
+        5.根据用户选择的是否记住登陆状态进行判断
+        6.为首页显示设置一些cookie信息
+        7.返回响应
+        '''
+        # 1.接收参数
+        mobile = request.POST.get('mobile')
+        password = request.POST.get('password')
+        remember = request.POST.get('remember')
+        # 2.参数验证
+        #     2.1验证手机号是否符合规则
+        if not re.match(r'^1[3-9]\d{9}$', mobile):
+            return HttpResponseBadRequest('手机号不符合规则')
+        #     2.2验证密码是否符合规则
+        if not re.match(r'^[0-9a-zA-Z]{8,20}$', password):
+            return HttpResponseBadRequest('密码不符合规则')
+        # 3.用户认证登录
+        # 采用系统自带认证方法进行认证
+        # 用户名密码正确会返回user对象，错误会返回None
+        # 默认的认证方法是针对于 username 字段进行用户名的判断
+        # 而当前判断信息为 手机号，所以要修改user模型中的认证字段
+        user = authenticate(mobile=mobile, password=password)
+        if user is None:
+            return HttpResponseBadRequest('用户名或密码错误')
+        # 4.状态保持
+        login(request, user)
+        # 5.根据用户选择的是否记住登陆状态进行判断
+        # 6.为首页显示设置一些cookie信息
+        response = redirect(reverse('home:index'))
+        # 不保持登陆状态
+        if remember != 'on':
+            # 设置过期时间为0，即关闭浏览器退出登录
+            request.session.set_expiry(0)
+            response.set_cookie('is_login',True)
+            response.set_cookie('username', user.username, max_age=14*24*3600)
+        # 保持登陆状态
+        else:
+            # 默认是记住两周
+            request.session.set_expiry(None)
+            response.set_cookie('is_login', True, max_age=14*24*3600)
+            response.set_cookie('username', user.username, max_age=14*24*3600)
+        # 7.返回响应
+        return response
+
+
+class LogoutView(View):
+
+    def get(self,request):
+        # 1.session数据删除
+        logout(request)
+        # 2.删除部分cookie数据
+        response = redirect(reverse('home:index'))
+        response.set_cookie('is_login', "", 0)
+        # response.delete_cookie('is_login')
+        # 3.跳转至首页
+        return response
+
+
+class ForgetPasswordView(View):
+
+    def get(self, request):
+
+        return render(request, 'forget_password.html')
+
+    def post(self,request):
+        '''
+        1.接收数据
+        2.验证数据
+            2.1判断参数是否齐全
+            2.2验证手机号是否符合规则
+            2.3验证密码是否符合规则
+            2.4验证密码和确认密码是否一致
+            2.5判断短信验证码是否正确
+        3.根据手机号进行用户信息查询
+        4.如果手机号查询出用户信息则进行用户密码修改
+        5.如果手机号未查询出用户信息则创建新用户
+        6.进行页面跳转，跳转至登陆页面
+        7.返回响应
+        '''
+        # 1.接收数据
+        mobile = request.POST.get('mobile')
+        password = request.POST.get('password')
+        password2 = request.POST.get('password2')
+        smscode = request.POST.get('sms_code')
+        # 2.验证数据
+        #     2.1判断参数是否齐全
+        if not all([mobile, password, password2, smscode]):
+            return HttpResponseBadRequest('参数不齐全')
+        #     2.2验证手机号是否符合规则
+        if not re.match(r'^1[3-9]\d{9}$', mobile):
+            return HttpResponseBadRequest('手机号不符合格式')
+        #     2.3验证密码是否符合规则
+        if not re.match(r'^[0-9a-zA-Z]{8,20}$', password):
+            return HttpResponseBadRequest('密码不符合规则')
+        #     2.4验证密码和确认密码是否一致
+        if password != password2:
+            return HttpResponseBadRequest('密码不一致')
+        #     2.5判断短信验证码是否正确
+        redis_conn = get_redis_connection('default')
+        redis_sms_code = redis_conn.get('sms:%s'%mobile)
+        if redis_sms_code is None:
+            return HttpResponseBadRequest('短信验证码已过期')
+        if redis_sms_code.decode() != smscode:
+            return HttpResponseBadRequest('短信验证码错误')
+        # 3.根据手机号进行用户信息查询
+        try:
+            user = User.objects.get(mobile=mobile)
+        except User.DoesNotExist:
+        # 5.如果手机号未查询出用户信息则创建新用户
+            try:
+                User.objects.create_user(username=mobile,
+                                         mobile=mobile,
+                                         password=password)
+            except Exception:
+                return HttpResponseBadRequest('修改失败')
+        else:
+        # 4.如果手机号查询出用户信息则进行用户密码修改
+            user.set_password(password)
+            # 保存用户信息
+            user.save()
+        # 6.进行页面跳转，跳转至登陆页面
+        response = redirect(reverse('users:login'))
+        # 7.返回响应
+        return response
