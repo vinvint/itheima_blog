@@ -8,6 +8,7 @@ class User(AbstractUser):
     # 手机号
     mobile = models.CharField(max_length=11, unique=True, blank=False)
     # 头像信息
+    # ImageField自动保存图片文件（默认保存在工程文件中），并记录图片路径
     avatar = models.ImageField(upload_to='avatar/%Y%m%d/', blank=True)
     # 简介信息
     user_desc = models.CharField(max_length=200, blank=True)

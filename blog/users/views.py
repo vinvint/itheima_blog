@@ -2,6 +2,7 @@ from random import randint
 
 import django_redis
 from django.contrib.auth import login, authenticate, logout
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.views import View
@@ -213,7 +214,13 @@ class LoginView(View):
         login(request, user)
         # 5.根据用户选择的是否记住登陆状态进行判断
         # 6.为首页显示设置一些cookie信息
-        response = redirect(reverse('home:index'))
+
+        # 根据next参数进行页面跳转
+        next_page = request.GET.get('next')
+        if next_page:
+            response = redirect(next_page)
+        else:
+            response = redirect(reverse('home:index'))
         # 不保持登陆状态
         if remember != 'on':
             # 设置过期时间为0，即关闭浏览器退出登录
@@ -308,4 +315,55 @@ class ForgetPasswordView(View):
         # 6.进行页面跳转，跳转至登陆页面
         response = redirect(reverse('users:login'))
         # 7.返回响应
+        return response
+
+
+# 继承LoginRequiredMixin类，访问该视图时，若用户未登录，则进行默认跳转
+# 默认的跳转路由是：accounts/login/?next=xxx
+# 在settings中修改系统默认跳转路由为/login/，则用户未登录时，访问登陆页面
+# 此时在登录页面进行登录，会进入首页。
+# 修改登录视图，实现默认进入首页，而在此情况下跳转至'个人中心'页面
+class UserCenterView(LoginRequiredMixin, View):
+
+    def get(self, request):
+        # 获取登陆用户信息
+        user = request.user
+        # 组织获取用户的信息
+        context = {
+            'username': user.username,
+            'mobile': user.mobile,
+            'avatar': user.avatar.url if user.avatar else None,
+            'user_desc': user.user_desc
+        }
+        return render(request, 'center.html', context)
+
+    def post(self, request):
+        '''
+        1.接收参数
+        2.将参数保存
+        3.更新cookie中的username
+        4.刷新当前页面（重定向）
+        5.返回响应
+        '''
+        user = request.user
+        # 1.接收参数
+        username = request.POST.get('username', user.username)
+        user_desc = request.POST.get('desc', user.user_desc)
+        # 若用户修改头像，则会以文件的形式传递图片
+        avatar = request.FILES.get('avatar')
+        # 2.将参数保存
+        try:
+            user.username = username
+            user.user_desc = user_desc
+            if avatar:
+                user.avatar = avatar
+            user.save()
+        except Exception as e:
+            logger.error(e)
+            return HttpResponseBadRequest('修改失败，请稍后再试')
+        # 3.更新cookie中的username
+        # 4.刷新当前页面（重定向）
+        response = redirect(reverse('users:center'))
+        response.set_cookie('username', user.username, max_age=14*24*3600)
+        # 5.返回响应
         return response
