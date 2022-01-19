@@ -9,6 +9,7 @@ from django.views import View
 from django.http.response import HttpResponseBadRequest, HttpResponse, JsonResponse
 from libs.captcha.captcha import captcha
 from django_redis import get_redis_connection
+from home.models import ArticleCtegory, Article
 
 from libs.yuntongxun.sms import CCP
 from utils.response_code import RETCODE
@@ -367,3 +368,54 @@ class UserCenterView(LoginRequiredMixin, View):
         response.set_cookie('username', user.username, max_age=14*24*3600)
         # 5.返回响应
         return response
+
+
+class WriteBlogView(LoginRequiredMixin, View):
+    def get(self, request):
+        # 查询所有分类信息
+        categories = ArticleCtegory.objects.all()
+        context = {
+            'categories':categories
+        }
+        return render(request, 'write_blog.html', context)
+
+    def post(self, request):
+        '''
+        1.接收参数
+        2.验证参数
+        3.保存数据
+        4.跳转至指定页面
+        '''
+        # 1.接收参数
+        avatar = request.FILES.get('avatar')
+        title = request.POST.get('title')
+        category_id = request.POST.get('category')
+        tags = request.POST.get('tags')
+        summary = request.POST.get('sumary')
+        content = request.POST.get('content')
+        user = request.user
+        # 2.验证参数
+        # 2.1验证参数是否齐全
+        if not all([avatar, title, category_id, tags, summary, content]):
+            return HttpResponseBadRequest('参数不全')
+        # 2.2判断分类id
+        try:
+            category = ArticleCtegory.objects.get(id=category_id)
+        except ArticleCtegory.DoesNotExist:
+            return HttpResponseBadRequest('没有此分类')
+        # 3.保存数据
+        try:
+            article = Article.objects.create(
+                auther=user,
+                title=title,
+                avatar=avatar,
+                category=category,
+                tags=tags,
+                sumary=summary,
+                content=content
+            )
+        except Exception as e:
+            logger.error(e)
+            return HttpResponseBadRequest('发布失败，请稍后再试')
+        # 4.跳转至指定页面
+        return redirect(reverse('home:index'))

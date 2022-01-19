@@ -15,6 +15,9 @@ class User(AbstractUser):
     # 修改（登录等）认证字段为手机号（默认为username）
     USERNAME_FIELD = 'mobile'
 
+    # 新增超级管理员时必须输入的字段
+    REQUIRED_FIELDS = ['username', 'email']
+
     class Meta:
         db_table = 'tb_users' # 设置表名
         verbose_name = '用户管理' # admin后台管理
